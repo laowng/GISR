@@ -63,6 +63,7 @@ def _ms_loop(dataset, index_queue, data_queue, done_event, collate_fn, scale, se
                 del samples
 
     except KeyboardInterrupt:
+        print("KeyboardInterrupt")
         pass
 
 class _MSDataLoaderIter(_DataLoaderIter):

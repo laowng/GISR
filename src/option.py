@@ -103,7 +103,7 @@ parser.add_argument('--gan_k', type=int, default=1,
 # Optimization specifications
 parser.add_argument('--lr', type=float, default=1e-4,
                     help='learning rate')
-parser.add_argument('--decay', type=str, default='200',
+parser.add_argument('--decay', type=str, default='80-180-250',
                     help='learning rate decay type')
 parser.add_argument('--gamma', type=float, default=0.5,
                     help='learning rate decay factor for step decay')
@@ -123,6 +123,8 @@ parser.add_argument('--gclip', type=float, default=0,
 
 # Loss specifications
 parser.add_argument('--loss', type=str, default='1*L1',
+                    help='loss function configuration')
+parser.add_argument('--loss_rate', type=str, default="0.5-0.5",
                     help='loss function configuration')
 parser.add_argument('--skip_threshold', type=float, default='1e8',
                     help='skipping batch that has large error')
@@ -152,7 +154,7 @@ args.data_test = args.data_test.split('+')
 
 if args.epochs == 0:
     args.epochs = 1e8
-
+args.loss_rate=args.loss_rate.split("-")
 for arg in vars(args):
     if vars(args)[arg] == 'True':
         vars(args)[arg] = True

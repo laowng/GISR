@@ -15,6 +15,7 @@ class Loss(nn.modules.loss._Loss):
     def __init__(self, args, ckp):
         super(Loss, self).__init__()
         print('Preparing loss function:')
+        self.ckp=ckp
 
         self.n_GPUs = args.n_GPUs
         self.loss = []
@@ -64,7 +65,7 @@ class Loss(nn.modules.loss._Loss):
                 self.loss_module, range(args.n_GPUs)
             )
 
-        if args.load != '': self.load(ckp.dir, cpu=args.cpu)
+        if args.load != '': self.load(self.ckp.dir, cpu=args.cpu)
 
     def forward(self, sr, hr):
         losses = []

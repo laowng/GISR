@@ -16,17 +16,12 @@ class Trainer():
         self.ckp = ckp
         self.loader_train = loader.loader_train
         self.loader_test = loader.loader_test
-
-
-
-
-
         self.model = my_model
         self.loss = my_loss
         self.optimizer = utility.make_optimizer(args, self.model)
 
         if self.args.load != '':
-            self.optimizer.load(ckp.dir, epoch=len(ckp.log))
+            self.optimizer.load(self.ckp.dir, epoch=len(self.ckp.log))
 
         self.error_last = 1e8
 
@@ -51,7 +46,7 @@ class Trainer():
 
             self.optimizer.zero_grad()
             sr = self.model(lr, 0)
-            loss = self.loss(sr, hr)
+            loss = float(self.args.loss_rate[0])*self.loss(sr, hr)+float(self.args.loss_rate[1])*self.loss(lr,torch.nn.functional.interpolate(sr, size=(lr.size(-2),lr.size(-1)), mode="bicubic", align_corners=False))
             loss.backward()
             if self.args.gclip > 0:
                 utils.clip_grad_value_(
@@ -84,7 +79,7 @@ class Trainer():
         self.ckp.add_log(
             torch.zeros(1, len(self.loader_test), len(self.scale))
         )
-        # self.model.eval()
+        self.model.eval()
 
         timer_test = utility.timer()
         if self.args.save_results: self.ckp.begin_background()
@@ -97,7 +92,6 @@ class Trainer():
                 result_ssim['[{} x{}]'.format(d.dataset.name,scale,)]={}
                 for lr, hr, filename in tqdm(d, ncols=80):
                     lr, hr = self.prepare(lr, hr)
-
                     sr = self.model(lr, idx_scale)
                     sr = utility.quantize(sr, self.args.rgb_range)
                     save_list = [sr]
@@ -106,17 +100,13 @@ class Trainer():
                     )
                     ssim=utility.cac_ssim(sr,hr,scale,self.args.rgb_range,dataset=d)
                     self.ckp.log[-1, idx_data, idx_scale] +=psnr
-
                     self.ckp.ssim_log[-1, idx_data, idx_scale]+=ssim
-
-                    result['[{} x{}]'.format(d.dataset.name, scale, )][str(filename)]=psnr
-                    result_ssim['[{} x{}]'.format(d.dataset.name, scale, )][str(filename)]=ssim
-
 
                     if self.args.save_gt:
                         save_list.extend([lr, hr])
-
                     if self.args.save_results:
+                        result['[{} x{}]'.format(d.dataset.name, scale, )][str(filename)] = psnr
+                        result_ssim['[{} x{}]'.format(d.dataset.name, scale, )][str(filename)] = ssim
                         self.ckp.save_results(d, filename[0], save_list, scale)
 
                 self.ckp.log[-1, idx_data, idx_scale] /= len(d)

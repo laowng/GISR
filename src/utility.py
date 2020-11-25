@@ -78,9 +78,7 @@ class checkpoint():
             for arg in vars(args):
                 f.write('{}: {}\n'.format(arg, getattr(args, arg)))
             f.write('\n')
-
         self.n_processes = 8
-
     def get_path(self, *subdir):
         return os.path.join(self.dir, *subdir)
 
@@ -88,7 +86,6 @@ class checkpoint():
         trainer.model.save(self.get_path('model'), epoch, is_best=is_best)
         trainer.loss.save(self.dir)
         trainer.loss.plot_loss(self.dir, epoch)
-
         self.plot_psnr(epoch)
         self.plot_ssim(epoch)
         self.plot_psnr_ssim(epoch)
@@ -168,7 +165,7 @@ class checkpoint():
                     color="blue"
                 )
 
-            fig.legend(loc=0)
+            fig.legend(loc=1)
             ax.set_xlabel('Epochs')
             ax.set_ylabel('PSNR')
             ax1.set_ylabel('SSIM')
@@ -178,7 +175,6 @@ class checkpoint():
             plt.close(fig)
     def begin_background(self):
         self.queue = Queue()
-
         def bg_target(queue):
             while True:
                 if not queue.empty():
@@ -260,7 +256,7 @@ def cac_ssim(img1,img2,scale,rgb_range,dataset=None):
         shave = scale + 6
     sr=img1[:,:,shave:-shave,shave:-shave]
     hr=img2[:,:,shave:-shave,shave:-shave]
-    return ssim.ssim(sr,hr,11,reduction="mean",max_val=rgb_range)
+    return ssim.ssim(sr,hr,11,reduction="mean",max_val=rgb_range).cpu()
 def make_optimizer(args, target):
     '''
         make optimizer and scheduler together

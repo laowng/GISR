@@ -10,7 +10,7 @@ class Model(nn.Module):
     def __init__(self, args, ckp):
         super(Model, self).__init__()
         print('Making model...')
-
+        self.ckp=ckp
         self.scale = args.scale
         self.idx_scale = 0
         self.input_large = (args.model == 'VDSR')
@@ -28,12 +28,12 @@ class Model(nn.Module):
             self.model.half()
 
         self.load(
-            ckp.get_path('model'),
+            self.ckp.get_path('model'),
             pre_train=args.pre_train,
             resume=args.resume,
             cpu=args.cpu
         )
-        print(self.model, file=ckp.log_file)
+        print(self.model, file=self.ckp.log_file)
 
     def forward(self, x, idx_scale):
         self.idx_scale = idx_scale
