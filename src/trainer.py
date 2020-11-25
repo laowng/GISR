@@ -101,7 +101,6 @@ class Trainer():
                     ssim=utility.cac_ssim(sr,hr,scale,self.args.rgb_range,dataset=d)
                     self.ckp.log[-1, idx_data, idx_scale] +=psnr
                     self.ckp.ssim_log[-1, idx_data, idx_scale]+=ssim
-
                     if self.args.save_gt:
                         save_list.extend([lr, hr])
                     if self.args.save_results:

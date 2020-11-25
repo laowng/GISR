@@ -303,7 +303,7 @@ def make_optimizer(args, target):
             self.scheduler.step()
 
         def get_lr(self):
-            return self.scheduler.get_lr()[0]
+            return self.scheduler.get_last_lr()[0]#get_lr()[0]
 
         def get_last_epoch(self):
             return self.scheduler.last_epoch
