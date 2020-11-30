@@ -1,23 +1,53 @@
 from model import common
-import model.Meta_ as Meta
 import torch.nn as nn
 import torch
-from model.feature_e import GLCM
+from model.ConvLSTM import ConvLSTM_Cell
 url = {
-    'r16f64x2': 'https://cv.snu.ac.kr/research/EDSR/models/edsr_baseline_x2-1bc95232.pt',
-    'r16f64x3': 'https://cv.snu.ac.kr/research/EDSR/models/edsr_baseline_x3-abf2a44e.pt',
-    'r16f64x4': 'https://cv.snu.ac.kr/research/EDSR/models/edsr_baseline_x4-6b446fab.pt',
-    'r32f256x2': 'https://cv.snu.ac.kr/research/EDSR/models/edsr_x2-0edfb8a3.pt',
-    'r32f256x3': 'https://cv.snu.ac.kr/research/EDSR/models/edsr_x3-ea3ef2c6.pt',
-    'r32f256x4': 'https://cv.snu.ac.kr/research/EDSR/models/edsr_x4-4f62e9ef.pt'
 }
 
 def make_model(args, parent=False):
-    return GISR(args)
+    return EGISR(args)
 
-class GISR(nn.Module):
+class Attention(nn.Module):
+    def __init__(self,args, conv=common.default_conv):
+        super(Attention,self).__init__()
+        n_resblocks = args.n_resblocks
+        self.n_feats = args.n_feats
+        kernel_size = 3
+        scale = args.scale[0]
+        act = nn.ReLU(True)
+        m_attention = [
+            common.ResBlock(
+                conv, self.n_feats, kernel_size, act=act, res_scale=1
+            ) for _ in range(3)
+        ]
+        m_attention.insert(0,conv(4, self.n_feats, kernel_size))
+        m_attention.append(conv(self.n_feats, self.n_feats, kernel_size))
+        self.attention_res = nn.Sequential(*m_attention)
+        self.attention_LSTM=ConvLSTM_Cell(self.n_feats,self.n_feats,)
+        self.attention_tail=conv(self.n_feats, 1, kernel_size)
+    def get_device(self):
+        return torch.device("cuda" if next(self.parameters()).is_cuda else "cpu")
+    def forward(self,input:torch.Tensor):
+        LSTM_HL=torch.zeros(input.size(0),self.n_feats,input.size(2),input.size(3)).to(self.get_device())
+        LSTM_CL=torch.zeros(input.size(0),self.n_feats,input.size(2),input.size(3)).to(self.get_device())
+        Map=torch.empty(input.size(0),1,input.size(2),input.size(3)).to(self.get_device())
+        torch.nn.init.constant_(Map,0.5)
+        Maps=[]
+        for i in range(3):
+            output=torch.cat((input,Map),dim=1)
+            output=self.attention_res(output)
+            LSTM_HL,LSTM_CL=self.attention_LSTM(output,LSTM_HL,LSTM_CL)
+            Map=self.attention_tail(LSTM_HL)
+            Maps.append(Map)
+        return Maps
+
+
+
+
+class EGISR(nn.Module):
     def __init__(self, args, conv=common.default_conv):
-        super(GISR, self).__init__()
+        super(EGISR, self).__init__()
 
         n_resblocks = args.n_resblocks
         n_feats = args.n_feats
@@ -33,7 +63,7 @@ class GISR(nn.Module):
         self.add_mean = common.MeanShift(args.rgb_range, sign=1)
 
         # define head module
-        # m_head = [conv(args.n_colors, n_feats, kernel_size)]
+        m_head = [conv(4, n_feats, kernel_size)]
 
         # define body module
         m_body = [
@@ -46,32 +76,25 @@ class GISR(nn.Module):
         # define tail module
         m_tail = [
             common.Upsampler(conv, scale, n_feats, act=False),
-            #conv(n_feats, args.n_colors, kernel_size)
+            conv(n_feats, args.n_colors, kernel_size)
         ]
-        self.fetra = GLCM(255)
-        # self.head=Meta.GLCMconv1(args.n_colors, n_feats, kernel_size, padding=(kernel_size - 1) // 2,)
-        self.head=Meta.Wconv1(5,args.n_colors,n_feats,kernel_size,padding=1)
-        # self.head = nn.Sequential(*m_head)
+        self.attention=Attention(args,conv)
+        self.head = nn.Sequential(*m_head)
         self.body = nn.Sequential(*m_body)
         self.tail = nn.Sequential(*m_tail)
-        self.tail_ = Meta.Wconv1(5, n_feats, args.n_colors, kernel_size, padding=1)
     def get_device(self):
         return torch.device("cuda" if next(self.parameters()).is_cuda else "cpu")
     def forward(self, x):
-        features = self.fetra(x).to(self.get_device())
         x = self.sub_mean(x)
-
-        # print(features)
-        x = self.head(x,features)
-
+        maps=self.attention(x)
+        x=torch.cat((x,maps[-1]),dim=1)
+        x = self.head(x)
         res = self.body(x)
         res += x
-
         x = self.tail(res)
-        x=self.tail_(x,features)
         x = self.add_mean(x)
 
-        return x 
+        return x,maps
 
     def load_state_dict(self, state_dict, strict=True):
         own_state = self.state_dict()
@@ -91,4 +114,9 @@ class GISR(nn.Module):
                 if name.find('tail') == -1 and name.find('head') == -1:
                     raise KeyError('unexpected key "{}" in state_dict'
                                    .format(name))
-
+if __name__ == '__main__':
+    from option import args
+    egisr=EGISR(args)
+    imgs=torch.randn(10,3,100,100)
+    size=egisr(imgs).size()
+    print(size)

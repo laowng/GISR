@@ -3,7 +3,7 @@ import math
 from decimal import Decimal
 
 import utility
-
+import torch.nn.functional as F
 import torch
 import torch.nn.utils as utils
 from tqdm import tqdm
@@ -45,8 +45,13 @@ class Trainer():
             timer_model.tic()
 
             self.optimizer.zero_grad()
-            sr = self.model(lr, 0)
-            loss = float(self.args.loss_rate[0])*self.loss(sr, hr)+float(self.args.loss_rate[1])*self.loss(lr,torch.nn.functional.interpolate(sr, size=(lr.size(-2),lr.size(-1)), mode="bicubic", align_corners=False))
+            sr,maps = self.model(lr, 0)
+            res=(hr-sr).detach().abs().sum(dim=1,keepdim=True)
+            res=(res**1.45).clamp(0,255)
+            res=F.interpolate(res, size=(lr.size(-2),lr.size(-1)), mode="nearest").detach()
+            loss = self.loss(sr, hr)
+            for t,map in enumerate(maps,1):
+                loss+=self.loss(map,res)*(0.8**(3-t))
             loss.backward()
             if self.args.gclip > 0:
                 utils.clip_grad_value_(
@@ -92,7 +97,7 @@ class Trainer():
                 result_ssim['[{} x{}]'.format(d.dataset.name,scale,)]={}
                 for lr, hr, filename in tqdm(d, ncols=80):
                     lr, hr = self.prepare(lr, hr)
-                    sr = self.model(lr, idx_scale)
+                    sr,maps = self.model(lr, idx_scale)
                     sr = utility.quantize(sr, self.args.rgb_range)
                     save_list = [sr]
                     psnr=utility.calc_psnr(
@@ -103,6 +108,7 @@ class Trainer():
                     self.ckp.ssim_log[-1, idx_data, idx_scale]+=ssim
                     if self.args.save_gt:
                         save_list.extend([lr, hr])
+                        save_list.extend(maps)
                     if self.args.save_results:
                         result['[{} x{}]'.format(d.dataset.name, scale, )][str(filename)] = psnr
                         result_ssim['[{} x{}]'.format(d.dataset.name, scale, )][str(filename)] = ssim
@@ -136,12 +142,12 @@ class Trainer():
                 self.ckp.write_log("\n")
                 self.ckp.write_log("{}".format(data_name))
                 for img_name in result[data_name]:
-                    self.ckp.write_log("{}:\t{}".format(img_name,result[data_name][img_name]))
+                    self.ckp.write_log("{}:\t{}".format(img_name,result[data_name][img_name]),verbose=False)
             for data_name in result:
                 self.ckp.write_log("\n")
                 self.ckp.write_log("{}".format(data_name))
                 for img_name in result[data_name]:
-                    self.ckp.write_log("{}:\t{}".format(img_name,result_ssim[data_name][img_name]))
+                    self.ckp.write_log("{}:\t{}".format(img_name,result_ssim[data_name][img_name]),verbose=False)
 
         self.ckp.write_log('Forward: {:.2f}s\n'.format(timer_test.toc()))
         self.ckp.write_log('Saving...')

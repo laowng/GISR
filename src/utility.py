@@ -11,11 +11,12 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 import imageio
-
+from torchvision.transforms import ToPILImage
 import torch
 import torch.optim as optim
 import torch.optim.lr_scheduler as lrs
 import ssim
+toImg=ToPILImage()
 class timer():
     def __init__(self):
         self.acc = 0
@@ -40,7 +41,12 @@ class timer():
 
     def reset(self):
         self.acc = 0
-
+def bg_target(queue):
+    while True:
+        if not queue.empty():
+            filename, img = queue.get()
+            if filename is None: break
+            img.save(filename)
 class checkpoint():
     def __init__(self, args):
         self.args = args
@@ -97,8 +103,8 @@ class checkpoint():
         self.log = torch.cat([self.log, log])
         self.ssim_log = torch.cat([self.ssim_log, log])
 
-    def write_log(self, log, refresh=False):
-        print(log)
+    def write_log(self, log, refresh=False,verbose=True):
+        if verbose:print(log)
         self.log_file.write(log + '\n')
         if refresh:
             self.log_file.close()
@@ -148,8 +154,8 @@ class checkpoint():
         for idx_data, d in enumerate(self.args.data_test):
             label = 'SR on {}'.format(d)
             fig = plt.figure()
-            plt.title(label)
             ax=fig.add_subplot(111)
+            ax.set_title(label)
             ax1=ax.twinx()
             for idx_scale, scale in enumerate(self.args.scale):
                 ax.plot(
@@ -171,17 +177,12 @@ class checkpoint():
             ax1.set_ylabel('SSIM')
             ax.grid(True)
             ax1.grid(True)
-            plt.savefig(self.get_path('test{}.pdf'.format(d)))
+            plt.savefig(self.get_path('test{}.pdf'.format(d)),dpi=200, bbox_inches='tight')
             plt.close(fig)
+
+
     def begin_background(self):
         self.queue = Queue()
-        def bg_target(queue):
-            while True:
-                if not queue.empty():
-                    filename, tensor = queue.get()
-                    if filename is None: break
-                    imageio.imwrite(filename, tensor.numpy())
-        
         self.process = [
             Process(target=bg_target, args=(self.queue,)) \
             for _ in range(self.n_processes)
@@ -200,11 +201,9 @@ class checkpoint():
                 'results-{}'.format(dataset.dataset.name),
                 '{}_x{}_'.format(filename, scale)
             )
-
-            postfix = ('SR', 'LR', 'HR')
+            postfix = ('SR', 'LR', 'HR',"map1","map2","map3")
             for v, p in zip(save_list, postfix):
-                normalized = v[0].mul(255 / self.args.rgb_range)
-                tensor_cpu = normalized.byte().permute(1, 2, 0).cpu()
+                tensor_cpu = toImg(v[0].cpu().byte())
                 self.queue.put(('{}{}.png'.format(filename, p), tensor_cpu))
 
 def quantize(img, rgb_range):
