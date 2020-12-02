@@ -47,11 +47,11 @@ class Trainer():
             self.optimizer.zero_grad()
             sr,maps = self.model(lr, 0)
             res=(hr-sr).detach().abs().sum(dim=1,keepdim=True)
-            res=(res**1.45).clamp(0,255)
-            res=F.interpolate(res, size=(lr.size(-2),lr.size(-1)), mode="nearest").detach()
+            res_1=(res**1.45).clamp(0,255)
+            res=F.interpolate(res_1, size=(lr.size(-2),lr.size(-1)), mode="nearest").detach()
             loss = self.loss(sr, hr)
-            for t,map in enumerate(maps,1):
-                loss+=self.loss(map,res)*(0.8**(3-t))
+            #for t,map in enumerate(maps,1):
+                #loss+=self.loss(map,res)*(0.8**(3-t))
             loss.backward()
             if self.args.gclip > 0:
                 utils.clip_grad_value_(

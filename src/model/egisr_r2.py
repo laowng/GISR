@@ -74,14 +74,19 @@ class EGISR(nn.Module):
         m_body.append(conv(n_feats, n_feats, kernel_size))
 
         # define tail module
-        m_tail = [
+        m_tail_1 = [
             common.Upsampler(conv, scale, n_feats, act=False),
             conv(n_feats, args.n_colors, kernel_size)
+        ]
+        m_tail_2 = [
+            common.Upsampler(conv, scale, n_feats+1, act=False),
+            conv(n_feats+1, args.n_colors, kernel_size)
         ]
         self.attention=Attention(args,conv)
         self.head = nn.Sequential(*m_head)
         self.body = nn.Sequential(*m_body)
-        self.tail = nn.Sequential(*m_tail)
+        self.tail_1 = nn.Sequential(*m_tail_1)
+        self.tail_2 = nn.Sequential(*m_tail_2)
     def get_device(self):
         return torch.device("cuda" if next(self.parameters()).is_cuda else "cpu")
     def forward(self, x):
@@ -91,10 +96,13 @@ class EGISR(nn.Module):
         x = self.head(x)
         res = self.body(x)
         res += x
-        x = self.tail(res)
+        x = self.tail_1(res)
         x = self.add_mean(x)
-
-        return x,maps
+        maps_1 = self.attention(x)
+        res_=torch.cat((res,maps[-1]),dim=1)
+        x = self.tail_2(res_)
+        x = self.add_mean(x)
+        return x,maps,maps_1
 
     def load_state_dict(self, state_dict, strict=True):
         own_state = self.state_dict()
