@@ -34,7 +34,7 @@ class Attention(nn.Module):
         Map=torch.empty(input.size(0),1,input.size(2),input.size(3)).to(self.get_device())
         torch.nn.init.constant_(Map,0.5)
         Maps=[]
-        for i in range(3):
+        for i in range(5):
             output=torch.cat((input,Map),dim=1)
             output=self.attention_res(output)
             LSTM_HL,LSTM_CL=self.attention_LSTM(output,LSTM_HL,LSTM_CL)

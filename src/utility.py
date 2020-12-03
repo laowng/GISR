@@ -201,7 +201,7 @@ class checkpoint():
                 'results-{}'.format(dataset.dataset.name),
                 '{}_x{}_'.format(filename, scale)
             )
-            postfix = ('SR', 'LR', 'HR',"map1","map2","map3")
+            postfix = ('SR', 'LR', 'HR',"map1","map2","map3","map4","map5","map6")
             for v, p in zip(save_list, postfix):
                 tensor_cpu = toImg(v[0].cpu().byte())
                 self.queue.put(('{}{}.png'.format(filename, p), tensor_cpu))
