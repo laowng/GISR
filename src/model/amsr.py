@@ -1,12 +1,12 @@
 from model import common
 import torch.nn as nn
 import torch
+import torch.nn.functional as F
 from model.ConvLSTM import ConvLSTM_Cell
 url = {
 }
-
 def make_model(args, parent=False):
-    return EGISR(args)
+    return AMSR(args)
 
 class Attention(nn.Module):
     def __init__(self,args, conv=common.default_conv):
@@ -17,7 +17,7 @@ class Attention(nn.Module):
         scale = args.scale[0]
         act = nn.ReLU(True)
         m_attention = [
-            common.ResBlock2(
+            common.ResBlock(
                 conv, self.n_feats, kernel_size, act=act, res_scale=1
             ) for _ in range(3)
         ]
@@ -34,7 +34,7 @@ class Attention(nn.Module):
         Map=torch.empty(input.size(0),1,input.size(2),input.size(3)).to(self.get_device())
         torch.nn.init.constant_(Map,0.5)
         Maps=[]
-        for i in range(3):
+        for i in range(5):
             output=torch.cat((input,Map),dim=1)
             output=self.attention_res(output)
             LSTM_HL,LSTM_CL=self.attention_LSTM(output,LSTM_HL,LSTM_CL)
@@ -45,13 +45,13 @@ class Attention(nn.Module):
 
 
 
-class EGISR(nn.Module):
+class AMSR(nn.Module):
     def __init__(self, args, conv=common.default_conv):
-        super(EGISR, self).__init__()
+        super(AMSR, self).__init__()
 
         n_resblocks = args.n_resblocks
         n_feats = args.n_feats
-        kernel_size = 3
+        kernel_size = 3 
         scale = args.scale[0]
         act = nn.ReLU(True)
         url_name = 'r{}f{}x{}'.format(n_resblocks, n_feats, scale)
@@ -66,12 +66,60 @@ class EGISR(nn.Module):
         m_head = [conv(4, n_feats, kernel_size)]
 
         # define body module
-        m_body = [
+        m_body1_L = [
             common.ResBlock(
                 conv, n_feats, kernel_size, act=act, res_scale=args.res_scale
-            ) for _ in range(n_resblocks)
+            ) for _ in range(2)
         ]
-        m_body.append(conv(n_feats, n_feats, kernel_size))
+        m_body1_L.append(conv(n_feats, n_feats, kernel_size))
+
+
+        m_body2_L = [
+            common.Upsampler(conv, 0.5, n_feats, act=False),
+        ]
+        m_body2_L.extend([
+            common.ResBlock(
+                conv, n_feats, kernel_size, act=act, res_scale=args.res_scale
+            ) for _ in range(2)
+        ])
+        m_body2_L.append(conv(n_feats, n_feats, kernel_size))
+
+
+        m_body3_L = [
+            common.Upsampler(conv, 0.5, n_feats, act=False),
+        ]
+        m_body3_L.extend([
+            common.ResBlock(
+                conv, n_feats, kernel_size, act=act, res_scale=args.res_scale
+            ) for _ in range(2)
+        ])
+        m_body3_L.append(conv(n_feats, n_feats, kernel_size))
+
+
+        m_body3_R = [
+            common.ResBlock(
+                conv, n_feats, kernel_size, act=act, res_scale=args.res_scale
+            ) for _ in range(2)
+        ]
+        m_body3_R.append(conv(n_feats, n_feats, kernel_size))
+        m_body3_R.append(common.Upsampler(conv, 2, n_feats, act=False))
+
+        m_body2_R=[conv(n_feats*2, n_feats, kernel_size)]
+        m_body2_R.extend([
+            common.ResBlock(
+                conv, n_feats, kernel_size, act=act, res_scale=args.res_scale
+            ) for _ in range(2)
+        ])
+        m_body2_R.append(common.Upsampler(conv, 2, n_feats, act=False))
+
+        m_body1_R=[conv(n_feats*2, n_feats, kernel_size)]
+        m_body1_R.extend([
+            common.ResBlock(
+                conv, n_feats, kernel_size, act=act, res_scale=args.res_scale
+            ) for _ in range(2)
+        ])
+        m_body1_R.append(conv(n_feats, n_feats, kernel_size))
+
 
         # define tail module
         m_tail = [
@@ -80,20 +128,32 @@ class EGISR(nn.Module):
         ]
         self.attention=Attention(args,conv)
         self.head = nn.Sequential(*m_head)
-        self.body = nn.Sequential(*m_body)
+        self.body1_L = nn.Sequential(*m_body1_L)
+        self.body2_L = nn.Sequential(*m_body2_L)
+        self.body3_L = nn.Sequential(*m_body3_L)
+        self.body3_R = nn.Sequential(*m_body3_R)
+        self.body2_R = nn.Sequential(*m_body2_R)
+        self.body1_R = nn.Sequential(*m_body1_R)
         self.tail = nn.Sequential(*m_tail)
     def get_device(self):
         return torch.device("cuda" if next(self.parameters()).is_cuda else "cpu")
     def forward(self, x):
+        x_H=x.size(-2)//2//2
+        x_W=x.size(-1)//2//2
         x = self.sub_mean(x)
         maps=self.attention(x)
         x=torch.cat((x,maps[-1]),dim=1)
         x = self.head(x)
-        res = self.body(x)
-        res += x
-        x = self.tail(res)
+        body1x_L=self.body1_L(x)
+        body2x_L=self.body2_L(body1x_L)
+        body3x_L=self.body3_L(body2x_L)
+        body3x_R=self.body3_R(body3x_L)
+        body2x_R=self.body2_R(torch.cat([body2x_L[:,:,:x_H*2,:x_W*2],body3x_R],dim=1))
+        body1x_R=self.body1_R(torch.cat([body1x_L[:,:,:x_H*4,:x_W*4],body2x_R],dim=1))
+        body1x_R=F.interpolate(body1x_R, size=(x.size(-2), x.size(-1)), mode="bicubic",align_corners=True)
+        body1x_R += x
+        x = self.tail(body1x_R)
         x = self.add_mean(x)
-
         return x,maps
 
     def load_state_dict(self, state_dict, strict=True):
@@ -112,7 +172,7 @@ class EGISR(nn.Module):
                 except Exception:
                     print(name+" load error")'''
         for name, param in state_dict.items():
-            if name in own_state:#name.find("atten")<0 and
+            if name in own_state:  # name.find("atten")<0 and
                 if isinstance(param, nn.Parameter):
                     param = param.data
                 try:
@@ -129,9 +189,11 @@ class EGISR(nn.Module):
                 if name.find('tail') == -1:
                     raise KeyError('unexpected key "{}" in state_dict'
                                    .format(name))
+
+
 if __name__ == '__main__':
     from option import args
-    egisr=EGISR(args)
-    imgs=torch.randn(10,3,100,100)
-    size=egisr(imgs).size()
+    egisr=AMSR(args)
+    imgs=torch.randn(10,3,110,110)
+    size=egisr(imgs)[0].size()
     print(size)
